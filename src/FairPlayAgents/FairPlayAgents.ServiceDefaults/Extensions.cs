@@ -61,6 +61,7 @@ public static class Extensions
             })
             .WithTracing(tracing =>
             {
+                // Include the application's ActivitySource so application-level activities are captured.
                 tracing.AddSource(builder.Environment.ApplicationName)
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health check requests from tracing

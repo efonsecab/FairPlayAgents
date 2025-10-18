@@ -25,9 +25,10 @@ namespace FairPlayAgents.Services
                 .GetChatClient(azureOpenAIConfiguration.DeploymentName)
                 .CreateAIAgent(instructions: "You will help users with their videos.", name: nameof(VideoAgentService)
                 , tools: [AIFunctionFactory.Create(GetVideoIds)])
-                .AsBuilder()
-                .UseOpenTelemetry()
-                .Build();
+                //.AsBuilder()
+                //.UseOpenTelemetry()
+                //.Build()
+                ;
             this.agent = agent;
             this.logger = logger;
         }
