@@ -2,6 +2,7 @@
   <Project Path="FairPlayAgents.ApiService/FairPlayAgents.ApiService.csproj" />
   <Project Path="FairPlayAgents.AppHost/FairPlayAgents.AppHost.csproj" />
   <Project Path="FairPlayAgents.ServiceDefaults/FairPlayAgents.ServiceDefaults.csproj" />
+  <Project Path="FairPlayAgents.Services/FairPlayAgents.Services.csproj" />
   <Project Path="FairPlayAgents.Tests/FairPlayAgents.Tests.csproj" />
   <Project Path="FairPlayAgents.Web/FairPlayAgents.Web.csproj" />
 </Solution>

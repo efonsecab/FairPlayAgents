@@ -11,6 +11,7 @@
   <PropertyGroup>
     <EnableMSTestRunner>true</EnableMSTestRunner>
     <OutputType>Exe</OutputType>
+    <UserSecretsId>a5ff0604-d948-441b-b626-13898d18fe46</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FairPlayAgents.AppHost\FairPlayAgents.AppHost.csproj" />
+    <ProjectReference Include="..\FairPlayAgents.Services\FairPlayAgents.Services.csproj" />
   </ItemGroup>
 
   <ItemGroup>

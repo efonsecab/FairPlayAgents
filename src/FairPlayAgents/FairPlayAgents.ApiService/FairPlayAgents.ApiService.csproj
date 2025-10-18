@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FairPlayAgents.ServiceDefaults\FairPlayAgents.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\FairPlayAgents.Services\FairPlayAgents.Services.csproj" />
   </ItemGroup>
 
   <ItemGroup>
