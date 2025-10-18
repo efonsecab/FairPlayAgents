@@ -1,5 +1,6 @@
 using FairPlayAgents.Web;
 using FairPlayAgents.Web.Components;
+using ModelContextProtocol.Client;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +19,32 @@ builder.Services.AddHttpClient<WeatherApiClient>(client =>
         // Learn more about service discovery scheme resolution at https://aka.ms/dotnet/sdschemes.
         client.BaseAddress = new("https+http://apiservice");
     });
+
+builder.Services.AddSingleton<McpClient>(sp =>
+{
+    McpClientOptions mcpClientOptions = new()
+    { ClientInfo = new() { Name = "AspNetCoreSseClient", Version = "1.0.0" } };
+
+    var client = new HttpClient();
+    client.BaseAddress = new("https+http://apiservice");
+
+    // can't use the service discovery for ["https +http://aspnetsseserver"]
+    // fix: read the environment value for the key 'services__aspnetsseserver__https__0' to get the url for the aspnet core sse server
+    var serviceName = "apiservice";
+    var name = $"services__{serviceName}__https__0";
+    var url = Environment.GetEnvironmentVariable(name) + "/sse";
+
+
+
+    HttpClientTransportOptions httpClientTransportOptions = new HttpClientTransportOptions()
+    { 
+        Endpoint= new Uri(url),
+        TransportMode = HttpTransportMode.Sse
+    };
+    HttpClientTransport httpClientTransport = new HttpClientTransport(httpClientTransportOptions);
+    var mcpClient = McpClient.CreateAsync(httpClientTransport).Result;
+    return mcpClient!;
+});
 
 var app = builder.Build();
 

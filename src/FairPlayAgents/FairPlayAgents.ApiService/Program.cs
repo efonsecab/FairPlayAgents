@@ -1,3 +1,4 @@
+using FairPlayAgents.ApiService.MCPTools;
 using FairPlayAgents.Services;
 using FairPlayAgents.Services.Configuration;
 using Microsoft.AspNetCore.Mvc;
@@ -12,6 +13,10 @@ builder.Services.AddProblemDetails();
 
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+
+builder.Services.AddMcpServer()
+    .WithTools<VideoTool>()
+    .WithHttpTransport();
 
 var azureOpenAIConfiguration =
                 builder.Configuration.GetSection(nameof(AzureOpenAIConfiguration))
@@ -53,6 +58,7 @@ app.MapGet("/videos", async (string request, [FromServices] VideoAgentService vi
 });
 
 app.MapDefaultEndpoints();
+app.MapMcp();
 
 app.Run();
 

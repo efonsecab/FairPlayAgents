@@ -1,7 +1,30 @@
 ﻿@page "/"
+@using ModelContextProtocol.Client
+@inject McpClient mcpClient
 
 <PageTitle>Home</PageTitle>
 
-<h1>Hello, world!</h1>
+@if (tools?.Count > 0)
+{
+    <div>
+        <h3>Available Tools</h3>
+        <ul>
+            @foreach (var tool in tools)
+            {
+                <li>
+                    <strong>Name: </strong> @tool.Name
+                    <strong>Description: </strong> @tool.Description
+                </li>
+            }
+        </ul>
+    </div>
+}
 
-Welcome to your new app.
+@code {
+    private IList<McpClientTool> tools = null!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        tools = await mcpClient.ListToolsAsync();
+    }
+}

@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="0.4.0-preview.2" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\FairPlayAgents.ServiceDefaults\FairPlayAgents.ServiceDefaults.csproj" />
   </ItemGroup>
 
