@@ -7,6 +7,8 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using OpenAI;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 
 namespace FairPlayAgents.Services
 {
@@ -25,10 +27,9 @@ namespace FairPlayAgents.Services
                 .GetChatClient(azureOpenAIConfiguration.DeploymentName)
                 .CreateAIAgent(instructions: "You will help users with their videos.", name: nameof(VideoAgentService)
                 , tools: [AIFunctionFactory.Create(GetVideoIds)])
-                //.AsBuilder()
-                //.UseOpenTelemetry()
-                //.Build()
-                ;
+                .AsBuilder()
+                .UseOpenTelemetry()
+                .Build();
             this.agent = agent;
             this.logger = logger;
         }
@@ -43,11 +44,21 @@ namespace FairPlayAgents.Services
 
             logger.LogInformation("AI Agent initialized successfully.");
 
+            ActivitySource activitySource = new ActivitySource("*Microsoft.Agents.AI");
+            Meter meter = new Meter("*Microsoft.Agents.AI");
+            using var activity = activitySource.StartActivity("Agent Interaction");
+            activity?
+                .SetTag("user.input", request)
+                .SetTag("agent.name", nameof(VideoAgentService));
+
             var response = await agent.RunAsync(request);
             
-            logger.LogInformation("Received response from AI Agent: {Response}", response.ToString());
+            var responseString = response.ToString();
+            activity?.SetTag("agent.response", responseString);
+
+            logger.LogInformation("Received response from AI Agent: {Response}", responseString);
             
-            return response.ToString();
+            return responseString;
         }
 
         [Description("Gets a list of Video Ids")]
