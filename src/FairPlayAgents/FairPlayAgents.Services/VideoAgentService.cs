@@ -9,6 +9,7 @@ using OpenAI;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using System.Threading.Tasks;
 
 namespace FairPlayAgents.Services
 {
@@ -16,17 +17,21 @@ namespace FairPlayAgents.Services
     {
         private readonly AIAgent? agent;
         private readonly ILogger<VideoAgentService> logger;
+        private readonly IAzureVideoIndexerService videoIndexerService;
 
         public VideoAgentService(
             AzureOpenAIConfiguration azureOpenAIConfiguration,
-            ILogger<VideoAgentService> logger)
+            ILogger<VideoAgentService> logger,
+            IAzureVideoIndexerService videoIndexerService)
         {
+            this.videoIndexerService = videoIndexerService;
+
             AIAgent agent = new AzureOpenAIClient(
                 new Uri(azureOpenAIConfiguration.Endpoint!),
                 new AzureCliCredential())
                 .GetChatClient(azureOpenAIConfiguration.DeploymentName)
                 .CreateAIAgent(instructions: "You will help users with their videos.", name: nameof(VideoAgentService)
-                , tools: [AIFunctionFactory.Create(GetVideoIds)])
+                , tools: [AIFunctionFactory.Create(GetVideoIds), AIFunctionFactory.Create(UploadVideoFromUrlAsync)])
                 .AsBuilder()
                 .UseOpenTelemetry()
                 .Build();
@@ -71,6 +76,22 @@ namespace FairPlayAgents.Services
             new VideoModel { VideoId = "video3", Name = "Sample Video 3" }
             };
             return videosList;
+        }
+
+        [Description("Uploads a video from a publicly accessible URL to the Video Indexer account")]
+        public async Task<string> UploadVideoFromUrlAsync(string videoUrl)
+        {
+            if (string.IsNullOrWhiteSpace(videoUrl))
+            {
+                throw new ArgumentException("videoUrl must be provided", nameof(videoUrl));
+            }
+
+            logger.LogInformation("Agent function called: UploadVideoFromUrlAsync for URL: {Url}", videoUrl);
+
+            // Delegate to the AzureVideoIndexerService which will handle token acquisition and upload
+            var result = await videoIndexerService.UploadVideoFromUrlUsingArmAsync(videoUrl);
+            logger.LogInformation("Upload result: {Result}", result);
+            return result;
         }
     }
 }

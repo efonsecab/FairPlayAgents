@@ -1,6 +1,7 @@
 using FairPlayAgents.ApiService.MCPTools;
 using FairPlayAgents.Services;
 using FairPlayAgents.Services.Configuration;
+using FairPlayAgents.Services.AzureVideoIndexer;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,6 +17,7 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddMcpServer()
     .WithTools<VideoTool>()
+    .WithTools<UploadTool>()
     .WithHttpTransport();
 
 var azureOpenAIConfiguration =
@@ -23,6 +25,35 @@ var azureOpenAIConfiguration =
                 .Get<AzureOpenAIConfiguration>();
 
 builder.Services.AddSingleton<AzureOpenAIConfiguration>(azureOpenAIConfiguration!);
+
+// Bind Azure Video Indexer configuration and register for DI
+var azureVideoIndexerConfiguration = builder.Configuration.GetSection(nameof(AzureVideoIndexerConfiguration))
+    .Get<AzureVideoIndexerConfiguration>();
+
+builder.Services.AddSingleton<AzureVideoIndexerConfiguration>(azureVideoIndexerConfiguration!);
+
+// Register AzureVideoIndexerService with an HttpClient injected
+builder.Services.AddHttpClient<AzureVideoIndexerService>()
+    // Optionally set base address for Video Indexer API using configured location
+    .ConfigureHttpClient((sp, client) =>
+    {
+        var cfg = sp.GetRequiredService<AzureVideoIndexerConfiguration>();
+        if (!string.IsNullOrWhiteSpace(cfg.Location))
+        {
+            client.BaseAddress = new Uri($"https://api.videoindexer.ai/{cfg.Location}");
+        }
+    });
+
+// Register the interface mapping to the concrete service using a factory that resolves the HttpClient from DI
+builder.Services.AddSingleton<IAzureVideoIndexerService>(sp =>
+{
+    var cfg = sp.GetRequiredService<AzureVideoIndexerConfiguration>();
+    var logger = sp.GetRequiredService<ILogger<AzureVideoIndexerService>>();
+    var httpClientFactory = sp.GetRequiredService<System.Net.Http.IHttpClientFactory>();
+    var client = httpClientFactory.CreateClient(typeof(AzureVideoIndexerService).FullName);
+    return new AzureVideoIndexerService(cfg, logger, client);
+});
+
 builder.Services.AddTransient<VideoAgentService>();
 
 var app = builder.Build();

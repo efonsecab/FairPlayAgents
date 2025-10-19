@@ -1,6 +1,11 @@
+using Azure.AI.OpenAI;
+using Azure.Identity;
 using FairPlayAgents.Web;
 using FairPlayAgents.Web.Components;
+using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 using ModelContextProtocol.Client;
+using OpenAI;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +24,12 @@ builder.Services.AddHttpClient<WeatherApiClient>(client =>
         // Learn more about service discovery scheme resolution at https://aka.ms/dotnet/sdschemes.
         client.BaseAddress = new("https+http://apiservice");
     });
+
+// Register a named HttpClient that resolves to the ApiService via service discovery.
+builder.Services.AddHttpClient("apiservice", client =>
+{
+    client.BaseAddress = new Uri("https+http://apiservice");
+});
 
 builder.Services.AddSingleton<McpClient>(sp =>
 {
@@ -44,6 +55,21 @@ builder.Services.AddSingleton<McpClient>(sp =>
     HttpClientTransport httpClientTransport = new HttpClientTransport(httpClientTransportOptions);
     var mcpClient = McpClient.CreateAsync(httpClientTransport).Result;
     return mcpClient!;
+});
+
+var azureOpenAIEndpoint = builder.Configuration["AzureOpenAIConfiguration:Endpoint"]!;
+var azureOpenAIDeploymentName = builder.Configuration["AzureOpenAIConfiguration:DeploymentName"]!;
+
+builder.Services.AddKeyedTransient<AIAgent>("VideoAgent", (sp,key) => 
+{
+    var mcpClient = sp.GetRequiredService<McpClient>();
+    var tools = mcpClient.ListToolsAsync().Result;
+    AIAgent agent = new AzureOpenAIClient(
+        new Uri(azureOpenAIEndpoint), new DefaultAzureCredential())
+        .GetChatClient(azureOpenAIDeploymentName)
+        .CreateAIAgent(instructions: "You will help users with their videos.",
+        tools: [.. tools.Cast<AITool>()]);
+    return agent;
 });
 
 var app = builder.Build();

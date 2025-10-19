@@ -1,30 +1,97 @@
 ﻿@page "/"
+@using Azure.AI.OpenAI
+@using Azure.Identity
+@using Microsoft.Agents.AI
 @using ModelContextProtocol.Client
-@inject McpClient mcpClient
+@using Microsoft.Extensions.AI
+@using OpenAI
+@using System.Threading
+@using System.Linq
+@using System.Collections.Generic
+@using System
+@using System.Net.Http
+
+
+@rendermode RenderMode.InteractiveServer
 
 <PageTitle>Home</PageTitle>
 
-@if (tools?.Count > 0)
-{
-    <div>
-        <h3>Available Tools</h3>
-        <ul>
-            @foreach (var tool in tools)
-            {
-                <li>
-                    <strong>Name: </strong> @tool.Name
-                    <strong>Description: </strong> @tool.Description
-                </li>
-            }
-        </ul>
+<div class="mt-4">
+    <h3>Ask the Agent</h3>
+    <div class="mb-2">
+        <label for="agentRequest">Request to agent</label>
+        <input id="agentRequest" @bind="agentRequest" class="form-control" />
     </div>
-}
+    <div class="mb-2">
+        <button class="btn btn-primary" @onclick="InvokeServerAgent" disabled="@(isCalling)">Send to Server Agent</button>
+    </div>
+    @if (!string.IsNullOrEmpty(agentResult))
+    {
+        <div class="alert alert-info">@agentResult</div>
+    }
+    @if (!string.IsNullOrEmpty(agentError))
+    {
+        <div class="alert alert-danger">@agentError</div>
+    }
+</div>
+
+<button type="button" @onclick="@(async () => await TestUpload())">Test Upload via Server Agent</button>
 
 @code {
-    private IList<McpClientTool> tools = null!;
+    [Inject(Key = "VideoAgent")]
+    public AIAgent? videoAgent { get; set; }
+    private string agentRequest = string.Empty;
+    private bool isCalling = false;
+    private string? agentResult;
+    private string? agentError;
 
-    protected override async Task OnInitializedAsync()
+    // Sends the user's request to the server-side agent endpoint so the agent runs on the ApiService
+    private async Task InvokeServerAgent()
     {
-        tools = await mcpClient.ListToolsAsync();
+        agentResult = null;
+        agentError = null;
+
+        if (string.IsNullOrWhiteSpace(agentRequest))
+        {
+            agentError = "Please enter a request for the agent.";
+            return;
+        }
+
+        isCalling = true;
+        try
+        {
+            // Use service discovery scheme used in this sample: the ApiService is registered as "apiservice".
+            using var client = new HttpClient { BaseAddress = new Uri("https://localhost:7577") };
+
+            // The ApiService exposes a GET /videos endpoint that accepts a 'request' query parameter.
+            var url = $"/videos?request={Uri.EscapeDataString(agentRequest)}";
+            var response = await client.GetAsync(url, CancellationToken.None);
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync(CancellationToken.None);
+            agentResult = content;
+        }
+        catch (Exception ex)
+        {
+            agentError = ex.Message;
+        }
+        finally
+        {
+            isCalling = false;
+        }
+    }
+
+    // Convenience test that sends an upload request to the server agent (which can invoke upload tool/server function)
+    private async Task TestUpload()
+    {
+        try
+        {
+            var response = await videoAgent!.RunAsync(agentRequest);
+            agentResult = response.Text;
+        }
+        catch (Exception ex)
+        {
+            agentError = ex.Message;
+        }
+        //await InvokeServerAgent();
     }
 }
