@@ -17,7 +17,7 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddMcpServer()
     .WithTools<VideoTool>()
-    .WithTools<UploadTool>()
+    .WithTools<VideoTool>()
     .WithHttpTransport();
 
 var azureOpenAIConfiguration =
@@ -50,11 +50,9 @@ builder.Services.AddSingleton<IAzureVideoIndexerService>(sp =>
     var cfg = sp.GetRequiredService<AzureVideoIndexerConfiguration>();
     var logger = sp.GetRequiredService<ILogger<AzureVideoIndexerService>>();
     var httpClientFactory = sp.GetRequiredService<System.Net.Http.IHttpClientFactory>();
-    var client = httpClientFactory.CreateClient(typeof(AzureVideoIndexerService).FullName);
+    var client = httpClientFactory.CreateClient(typeof(AzureVideoIndexerService).FullName!);
     return new AzureVideoIndexerService(cfg, logger, client);
 });
-
-builder.Services.AddTransient<VideoAgentService>();
 
 var app = builder.Build();
 
@@ -81,12 +79,6 @@ app.MapGet("/weatherforecast", () =>
     return forecast;
 })
 .WithName("GetWeatherForecast");
-
-app.MapGet("/videos", async (string request, [FromServices] VideoAgentService videoAgentService) => 
-{
-    var result = await videoAgentService.ProcessVideoRequest(request);
-    return result;
-});
 
 app.MapDefaultEndpoints();
 app.MapMcp();

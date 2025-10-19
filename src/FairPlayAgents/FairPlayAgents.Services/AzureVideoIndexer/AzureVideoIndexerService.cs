@@ -18,6 +18,7 @@ namespace FairPlayAgents.Services.AzureVideoIndexer
         Task<string> UploadVideoFromUrlAsync(string videoUrl, string accessToken, CancellationToken cancellationToken = default);
         Task<string> GetArmAccessTokenAsync(CancellationToken cancellationToken = default);
         Task<string> UploadVideoFromUrlUsingArmAsync(string videoUrl, CancellationToken cancellationToken = default);
+        Task<string> ListVideosAsync(CancellationToken cancellationToken = default);
     }
 
     public class AzureVideoIndexerService : IAzureVideoIndexerService
@@ -161,7 +162,7 @@ namespace FairPlayAgents.Services.AzureVideoIndexer
             {
                 var name = "uploaded-video";
 
-                var requestUri = new Uri($"https://api.videoindexer.ai/{configuration.Location}/Accounts/{configuration.AccountId}/Videos?name={Uri.EscapeDataString(name)}&videoUrl={Uri.EscapeDataString(videoUrl)}&privacy=Private");
+                var requestUri = new Uri($"https://api.videoindexer.ai/{configuration.Location}/Accounts/{configuration.AccountId}/Videos?name={Uri.EscapeDataString(name)}&videoUrl={Uri.EscapeDataString(videoUrl)}&privacy=Public&preventDuplicates=false");
 
                 // Set Authorization header on HttpClient
                 httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -184,6 +185,72 @@ namespace FairPlayAgents.Services.AzureVideoIndexer
                 logger.LogError(ex, "Error uploading video from url: {Url}", videoUrl);
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Lists videos for the configured ARM-based Video Indexer account.
+        /// Returns a JSON string with { success: true, raw: <api response> } or an error object string.
+        /// </summary>
+        public async Task<string> ListVideosAsync(CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                if (!configuration.IsArmAccount)
+                {
+                    return JsonSerializer.Serialize(new { success = false, error = "Configuration indicates this is not an ARM-based Video Indexer account." });
+                }
+
+                if (string.IsNullOrWhiteSpace(configuration.SubscriptionId) || string.IsNullOrWhiteSpace(configuration.ResourceGroup) || string.IsNullOrWhiteSpace(configuration.ResourceName) || string.IsNullOrWhiteSpace(configuration.Location) || string.IsNullOrWhiteSpace(configuration.AccountId))
+                {
+                    return JsonSerializer.Serialize(new { success = false, error = "AzureVideoIndexerConfiguration is missing required ARM or account identifiers." });
+                }
+
+                // Acquire ARM token
+                var armToken = await GetArmAccessTokenAsync(cancellationToken).ConfigureAwait(false);
+
+                // Exchange for account token
+                var accountToken = await ExchangeArmTokenForAccountTokenAsync(armToken, cancellationToken).ConfigureAwait(false);
+
+                // Call Video Indexer API to list videos
+                var listUrl = $"https://api.videoindexer.ai/{configuration.Location}/Accounts/{configuration.AccountId}/Videos?includeStreamingUrls=false&skip=0&top=100";
+                using var req = new HttpRequestMessage(HttpMethod.Get, listUrl);
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accountToken);
+
+                var resp = await httpClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
+                var content = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+                if (!resp.IsSuccessStatusCode)
+                {
+                    logger.LogWarning("ListVideosAsync: Video Indexer list call failed. Status: {Status}, Response: {Response}", resp.StatusCode, content);
+                    return JsonSerializer.Serialize(new { success = false, error = "Video Indexer list API returned failure.", status = (int)resp.StatusCode, response = content });
+                }
+
+                // Return parsed JSON embedded into a success wrapper
+                try
+                {
+                    var root = JsonDocument.Parse(content).RootElement;
+                    return JsonSerializer.Serialize(new { success = true, raw = root });
+                }
+                catch (JsonException)
+                {
+                    // Return raw text if parsing fails
+                    return JsonSerializer.Serialize(new { success = true, raw = content });
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "ListVideosAsync failed.");
+                return JsonSerializer.Serialize(new { success = false, error = ex.Message, exceptionType = ex.GetType().FullName });
+            }
+        }
+
+        private static string? TryGetString(JsonElement element, string propertyName)
+        {
+            if (element.TryGetProperty(propertyName, out var prop) && prop.ValueKind == JsonValueKind.String)
+            {
+                return prop.GetString();
+            }
+            return null;
         }
     }
 }

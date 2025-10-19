@@ -22,9 +22,6 @@
         <label for="agentRequest">Request to agent</label>
         <input id="agentRequest" @bind="agentRequest" class="form-control" />
     </div>
-    <div class="mb-2">
-        <button class="btn btn-primary" @onclick="InvokeServerAgent" disabled="@(isCalling)">Send to Server Agent</button>
-    </div>
     @if (!string.IsNullOrEmpty(agentResult))
     {
         <div class="alert alert-info">@agentResult</div>
@@ -35,7 +32,7 @@
     }
 </div>
 
-<button type="button" @onclick="@(async () => await TestUpload())">Test Upload via Server Agent</button>
+<button type="button" @onclick="@(async () => await SendRequestAsync())">Send request</button>
 
 @code {
     [Inject(Key = "VideoAgent")]
@@ -45,43 +42,8 @@
     private string? agentResult;
     private string? agentError;
 
-    // Sends the user's request to the server-side agent endpoint so the agent runs on the ApiService
-    private async Task InvokeServerAgent()
-    {
-        agentResult = null;
-        agentError = null;
-
-        if (string.IsNullOrWhiteSpace(agentRequest))
-        {
-            agentError = "Please enter a request for the agent.";
-            return;
-        }
-
-        isCalling = true;
-        try
-        {
-            // Use service discovery scheme used in this sample: the ApiService is registered as "apiservice".
-            using var client = new HttpClient { BaseAddress = new Uri("https://localhost:7577") };
-
-            // The ApiService exposes a GET /videos endpoint that accepts a 'request' query parameter.
-            var url = $"/videos?request={Uri.EscapeDataString(agentRequest)}";
-            var response = await client.GetAsync(url, CancellationToken.None);
-            response.EnsureSuccessStatusCode();
-            var content = await response.Content.ReadAsStringAsync(CancellationToken.None);
-            agentResult = content;
-        }
-        catch (Exception ex)
-        {
-            agentError = ex.Message;
-        }
-        finally
-        {
-            isCalling = false;
-        }
-    }
-
     // Convenience test that sends an upload request to the server agent (which can invoke upload tool/server function)
-    private async Task TestUpload()
+    private async Task SendRequestAsync()
     {
         try
         {
@@ -92,6 +54,5 @@
         {
             agentError = ex.Message;
         }
-        //await InvokeServerAgent();
     }
 }
