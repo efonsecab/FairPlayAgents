@@ -9,17 +9,11 @@ using Azure.Identity;
 using System.Text.Json;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace FairPlayAgents.Services.AzureVideoIndexer
 {
-    public interface IAzureVideoIndexerService
-    {
-        string GetIndexerInfo();
-        Task<string> UploadVideoFromUrlAsync(string videoUrl, string accessToken, CancellationToken cancellationToken = default);
-        Task<string> GetArmAccessTokenAsync(CancellationToken cancellationToken = default);
-        Task<string> UploadVideoFromUrlUsingArmAsync(string videoUrl, CancellationToken cancellationToken = default);
-        Task<string> ListVideosAsync(CancellationToken cancellationToken = default);
-    }
 
     public class AzureVideoIndexerService : IAzureVideoIndexerService
     {
@@ -39,6 +33,18 @@ namespace FairPlayAgents.Services.AzureVideoIndexer
         public string GetIndexerInfo()
         {
             return $"AccountId={configuration.AccountId}; Location={configuration.Location}; Resource={configuration.ResourceName}";
+        }
+
+        // Build the Video Indexer player URL using the accountId, videoId and location.
+        // Use the URL shape you provided: https://www.videoindexer.ai/accounts/{accountId}/videos/{videoId}/?location={location}
+        public string GetVideoPublicUrl(string videoId)
+        {
+            if (string.IsNullOrWhiteSpace(videoId) || string.IsNullOrWhiteSpace(configuration.Location) || string.IsNullOrWhiteSpace(configuration.AccountId))
+            {
+                return string.Empty;
+            }
+
+            return $"https://www.videoindexer.ai/accounts/{configuration.AccountId}/videos/{Uri.EscapeDataString(videoId)}/?location={Uri.EscapeDataString(configuration.Location)}";
         }
 
         /// <summary>
@@ -140,6 +146,7 @@ namespace FairPlayAgents.Services.AzureVideoIndexer
         /// <summary>
         /// Uploads a video to Azure Video Indexer by providing a publicly accessible video URL.
         /// Requires a valid account access token for the Video Indexer API (bearer token).
+        /// The returned string is the raw API response (if JSON) — callers (MCP tools) can parse it and use GetVideoPublicUrl to obtain a clickable link.
         /// </summary>
         public async Task<string> UploadVideoFromUrlAsync(string videoUrl, string accessToken, CancellationToken cancellationToken = default)
         {
@@ -189,7 +196,7 @@ namespace FairPlayAgents.Services.AzureVideoIndexer
 
         /// <summary>
         /// Lists videos for the configured ARM-based Video Indexer account.
-        /// Returns a JSON string with { success: true, raw: <api response> } or an error object string.
+        /// Returns JSON string: { success: true, videos: [ { id, name, state, publicUrl, raw } ], raw = <api response> } or an error object string.
         /// </summary>
         public async Task<string> ListVideosAsync(CancellationToken cancellationToken = default)
         {
@@ -211,8 +218,8 @@ namespace FairPlayAgents.Services.AzureVideoIndexer
                 // Exchange for account token
                 var accountToken = await ExchangeArmTokenForAccountTokenAsync(armToken, cancellationToken).ConfigureAwait(false);
 
-                // Call Video Indexer API to list videos
-                var listUrl = $"https://api.videoindexer.ai/{configuration.Location}/Accounts/{configuration.AccountId}/Videos?includeStreamingUrls=false&skip=0&top=100";
+                // Call Video Indexer API to list videos. Do not request streaming URLs — we'll build player URL ourselves.
+                var listUrl = $"https://api.videoindexer.ai/{configuration.Location}/Accounts/{configuration.AccountId}/Videos?skip=0&top=100";
                 using var req = new HttpRequestMessage(HttpMethod.Get, listUrl);
                 req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accountToken);
 
@@ -225,11 +232,59 @@ namespace FairPlayAgents.Services.AzureVideoIndexer
                     return JsonSerializer.Serialize(new { success = false, error = "Video Indexer list API returned failure.", status = (int)resp.StatusCode, response = content });
                 }
 
-                // Return parsed JSON embedded into a success wrapper
+                // Parse and augment per-video with a player URL constructed from accountId/location/videoId
                 try
                 {
-                    var root = JsonDocument.Parse(content).RootElement;
-                    return JsonSerializer.Serialize(new { success = true, raw = root });
+                    using var doc = JsonDocument.Parse(content);
+                    var root = doc.RootElement;
+
+                    // locate an array of items in common response shapes
+                    JsonElement videosArray = default;
+                    if (root.ValueKind == JsonValueKind.Object)
+                    {
+                        if (root.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array)
+                        {
+                            videosArray = results;
+                        }
+                        else if (root.TryGetProperty("videos", out var videos) && videos.ValueKind == JsonValueKind.Array)
+                        {
+                            videosArray = videos;
+                        }
+                        else if (root.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array)
+                        {
+                            videosArray = value;
+                        }
+                    }
+                    else if (root.ValueKind == JsonValueKind.Array)
+                    {
+                        videosArray = root;
+                    }
+
+                    var list = new List<object>();
+
+                    if (videosArray.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in videosArray.EnumerateArray())
+                        {
+                            var id = TryGetString(item, "id") ?? TryGetString(item, "videoId");
+                            var name = TryGetString(item, "name") ?? TryGetString(item, "videoName") ?? TryGetString(item, "displayName");
+                            var state = TryGetString(item, "state") ?? TryGetString(item, "status");
+
+                            // Construct player URL using video id and configured location/account
+                            var publicUrl = string.IsNullOrWhiteSpace(id) ? null : GetVideoPublicUrl(id);
+
+                            list.Add(new
+                            {
+                                id,
+                                name,
+                                state,
+                                publicUrl,
+                                raw = item
+                            });
+                        }
+                    }
+
+                    return JsonSerializer.Serialize(new { success = true, videos = list, raw = root });
                 }
                 catch (JsonException)
                 {

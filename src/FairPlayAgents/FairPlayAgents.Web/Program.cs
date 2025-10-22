@@ -18,13 +18,6 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddOutputCache();
 
-builder.Services.AddHttpClient<WeatherApiClient>(client =>
-    {
-        // This URL uses "https+http://" to indicate HTTPS is preferred over HTTP.
-        // Learn more about service discovery scheme resolution at https://aka.ms/dotnet/sdschemes.
-        client.BaseAddress = new("https+http://apiservice");
-    });
-
 // Register a named HttpClient that resolves to the ApiService via service discovery.
 builder.Services.AddHttpClient("apiservice", client =>
 {
@@ -38,14 +31,9 @@ builder.Services.AddSingleton<McpClient>(sp =>
 
     var client = new HttpClient();
     client.BaseAddress = new("https+http://apiservice");
-
-    // can't use the service discovery for ["https +http://aspnetsseserver"]
-    // fix: read the environment value for the key 'services__aspnetsseserver__https__0' to get the url for the aspnet core sse server
     var serviceName = "apiservice";
     var name = $"services__{serviceName}__https__0";
     var url = Environment.GetEnvironmentVariable(name) + "/sse";
-
-
 
     HttpClientTransportOptions httpClientTransportOptions = new HttpClientTransportOptions()
     { 

@@ -1,58 +1,226 @@
 ﻿@page "/"
-@using Azure.AI.OpenAI
-@using Azure.Identity
 @using Microsoft.Agents.AI
-@using ModelContextProtocol.Client
-@using Microsoft.Extensions.AI
-@using OpenAI
-@using System.Threading
-@using System.Linq
-@using System.Collections.Generic
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Forms
 @using System
-@using System.Net.Http
-
+@using System.Threading
+@using System.Text
+@using System.Text.RegularExpressions
 
 @rendermode RenderMode.InteractiveServer
 
 <PageTitle>Home</PageTitle>
 
-<div class="mt-4">
-    <h3>Ask the Agent</h3>
-    <div class="mb-2">
-        <label for="agentRequest">Request to agent</label>
-        <input id="agentRequest" @bind="agentRequest" class="form-control" />
-    </div>
-    @if (!string.IsNullOrEmpty(agentResult))
-    {
-        <div class="alert alert-info">@agentResult</div>
-    }
-    @if (!string.IsNullOrEmpty(agentError))
-    {
-        <div class="alert alert-danger">@agentError</div>
-    }
-</div>
+<div class="container my-4">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h3 class="card-title mb-3">Ask the Agent</h3>
 
-<button type="button" @onclick="@(async () => await SendRequestAsync())">Send request</button>
+                    <div class="mb-3">
+                        <label for="agentRequest" class="form-label">Request to agent</label>
+                        <InputTextArea id="agentRequest"
+                                       class="form-control"
+                                       @bind-Value="agentRequest"
+                                       rows="4"
+                                       placeholder="Type a question or command (ex: upload a video, check status)..." />
+                    </div>
+
+                    <div class="d-flex align-items-center gap-2 mb-3">
+                        <button class="@SendButtonClass"
+                                @onclick="TrySendRequestAsync">
+                            @if (isCalling)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                <span>Processing...</span>
+                            }
+                            else
+                            {
+                                <span>Send request</span>
+                            }
+                        </button>
+
+                        <button class="@ClearButtonClass" @onclick="TryClearAsync">
+                            Clear
+                        </button>
+
+                        <div class="ms-auto text-muted small">
+                            @if (isCalling)
+                            {
+                                <span class="d-inline-flex align-items-center">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                    Working — please wait
+                                </span>
+                            }
+                            else if (!string.IsNullOrEmpty(agentResult))
+                            {
+                                <span>Done</span>
+                            }
+                        </div>
+                    </div>
+
+                    @if (isCalling)
+                    {
+                        <div class="mb-3">
+                            <div class="progress" style="height:8px;">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:100%"></div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(agentResult))
+                    {
+                        <div class="alert alert-info">
+                            @((MarkupString)RenderResultWithLinks(agentResult))
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(agentError))
+                    {
+                        <div class="alert alert-danger">@agentError</div>
+                    }
+                </div>
+
+                <div class="card-footer text-muted small">
+                    This UI sends requests to the configured video agent. Long-running operations will show a spinner and progress bar.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 @code {
     [Inject(Key = "VideoAgent")]
     public AIAgent? videoAgent { get; set; }
+
     private string agentRequest = string.Empty;
     private bool isCalling = false;
     private string? agentResult;
     private string? agentError;
 
-    // Convenience test that sends an upload request to the server agent (which can invoke upload tool/server function)
+    // Optional timeout to keep UI responsive
+    private readonly TimeSpan callTimeout = TimeSpan.FromMinutes(2);
+
+    private string SendButtonClass => isCalling || string.IsNullOrWhiteSpace(agentRequest) ? "btn btn-primary disabled" : "btn btn-primary";
+    private string ClearButtonClass => isCalling ? "btn btn-outline-secondary disabled" : "btn btn-outline-secondary";
+
+    private async Task TrySendRequestAsync()
+    {
+        if (isCalling || string.IsNullOrWhiteSpace(agentRequest))
+            return;
+        await SendRequestAsync();
+    }
+
+    private async Task TryClearAsync()
+    {
+        if (isCalling)
+            return;
+        Clear();
+        await Task.CompletedTask;
+    }
+
     private async Task SendRequestAsync()
     {
+        if (videoAgent is null)
+        {
+            agentError = "Agent is not available.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(agentRequest))
+        {
+            agentError = "Please enter a request.";
+            return;
+        }
+
+        isCalling = true;
+        agentError = null;
+        agentResult = null;
+        StateHasChanged();
+
         try
         {
-            var response = await videoAgent!.RunAsync(agentRequest);
-            agentResult = response.Text;
+            var runTask = videoAgent.RunAsync(agentRequest);
+            var completed = await Task.WhenAny(runTask, Task.Delay(callTimeout));
+
+            if (completed != runTask)
+            {
+                agentError = $"Agent did not respond within {callTimeout.TotalSeconds:N0} seconds.";
+                _ = ObserveAndIgnoreAsync(runTask);
+            }
+            else
+            {
+                var response = await runTask;
+                agentResult = response?.Text ?? string.Empty;
+            }
         }
         catch (Exception ex)
         {
             agentError = ex.Message;
         }
+        finally
+        {
+            isCalling = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ObserveAndIgnoreAsync(Task runTask)
+    {
+        try
+        {
+            await runTask;
+        }
+        catch
+        {
+            // intentionally ignored
+        }
+    }
+
+    private void Clear()
+    {
+        agentRequest = string.Empty;
+        agentResult = string.Empty;
+        agentError = null;
+    }
+
+    // Render agent result as HTML with clickable links for any http(s) URLs
+    private static string RenderResultWithLinks(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return string.Empty;
+
+        // Regex to find URLs. Use non-@ string to avoid Razor parsing issues.
+        var pattern = "https?://[^\\s)\\]\\}\\'\\\"]+";
+        var urlRegex = new Regex(pattern, RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        var sb = new StringBuilder();
+        int lastIndex = 0;
+
+        foreach (Match m in urlRegex.Matches(text))
+        {
+            var idx = m.Index;
+            var len = m.Length;
+            if (idx > lastIndex)
+            {
+                sb.Append(System.Net.WebUtility.HtmlEncode(text.Substring(lastIndex, idx - lastIndex)));
+            }
+
+            // Trim trailing punctuation common in text
+            var url = m.Value.TrimEnd('.', ',', ';', ')', ']', '\'', '"');
+            var encodedUrl = System.Net.WebUtility.HtmlEncode(url);
+            sb.Append($"<a href=\"{encodedUrl}\" target=\"_blank\" rel=\"noopener noreferrer\">{encodedUrl}</a>");
+
+            lastIndex = idx + len;
+        }
+
+        if (lastIndex < text.Length)
+        {
+            sb.Append(System.Net.WebUtility.HtmlEncode(text.Substring(lastIndex)));
+        }
+
+        // Preserve newlines
+        return sb.ToString().Replace("\n", "<br/>");
     }
 }

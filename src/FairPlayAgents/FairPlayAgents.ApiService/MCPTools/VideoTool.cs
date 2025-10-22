@@ -3,6 +3,7 @@ using ModelContextProtocol.Server;
 using System.ComponentModel;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
+using System.Collections.Generic;
 
 namespace FairPlayAgents.ApiService.MCPTools
 {
@@ -42,6 +43,13 @@ namespace FairPlayAgents.ApiService.MCPTools
                         progress = indexingProp.GetString();
                     }
 
+                    // Always build the player URL from accountId + location + videoId when id is present
+                    string? publicUrl = null;
+                    if (!string.IsNullOrWhiteSpace(id))
+                    {
+                        publicUrl = videoIndexer.GetVideoPublicUrl(id);
+                    }
+
                     var details = new
                     {
                         success = true,
@@ -49,6 +57,7 @@ namespace FairPlayAgents.ApiService.MCPTools
                         state,
                         progress,
                         message,
+                        publicUrl,
                         raw = result
                     };
 
@@ -61,7 +70,7 @@ namespace FairPlayAgents.ApiService.MCPTools
                         {
                             var hint = new { note = "Video may already exist. You can poll the Video Indexer Index API for progress: /Accounts/{accountId}/Videos/{videoId}/Index" };
                             // merge details and hint by creating an anonymous object
-                            var outObj = new { success = true, id, state, progress, message, hint, raw = result };
+                            var outObj = new { success = true, id, state, progress, message, publicUrl, hint, raw = result };
                             return JsonSerializer.Serialize(outObj);
                         }
                     }
